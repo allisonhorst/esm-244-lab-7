@@ -1,0 +1,517 @@
+---
+title: "ESM 244 Lab 7 Instructor Key"
+author: "Allison Horst"
+date: "February 16, 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Attach packages: 
+```{r}
+
+library(tidyverse)
+library(tmap)
+library(sf)
+library(spatstat)
+library(maptools)
+library(sp)
+library(raster)
+# library(rgdal)
+library(gstat)
+
+```
+
+##Part 1. Hawaii raster intro
+
+```{r}
+
+# Read in the raster data
+
+hi_par <- raster("PAR_CLIM_M.tif")
+hi_sst <- raster("SST_LTM.tif")
+hi_chl <- raster("CHL_LTM.tif")
+  
+# Base plots
+# plot(hi_par)
+# plot(hi_sst)
+# plot(hi_chl)
+
+```
+
+###First: some useful functions for rasters
+
+Checking it out: 
+
+- crs
+- reprojection
+- cropping
+- simple algebra example
+
+```{r}
+
+hi_sst@crs # Shows CRS: NAD83
+
+hi_sst@extent # Shows extent (bounds)
+
+```
+
+Example: reprojection to WGS84
+```{r}
+wgs84 = "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs" # Just have this ready to copy/paste
+
+# Reproject
+hi_sst_84 = projectRaster(hi_sst, crs = wgs84, method = "bilinear")
+
+# Check the reprojection
+hi_sst_84@crs 
+
+```
+
+raster::aggregate() for resampling
+```{r}
+
+# Sea surface temperature: 
+sst_rs <- aggregate(hi_sst, fact = 10)
+plot(sst_rs)
+
+# Plot side-by-side for comparison:
+par(mfrow = c(1,2))
+plot(hi_sst)
+plot(sst_rs)
+
+```
+
+Crop a raster: 
+```{r}
+
+# Get these extents from hi_sst_84 (call in console to see)
+# First create a spatial polygon
+bounds <- as(extent(-156.2, -154.5, 18.7, 20.4), 'SpatialPolygons') # Keep in mind, this could be any polygon shape (state outline, county outline, etc.)
+
+# Reproject
+crs(bounds) <- crs(hi_sst_84)
+
+# Then crop: 
+sst_crop <- crop(hi_sst_84, bounds)
+
+# And plot:
+plot(sst_crop)
+```
+
+A simple algebra example: 
+
+Let's say we're creating a nonsensical variable called "tropicality", which is the sum of the PAR + SST + 2*ChlA. How can we create a layer for tropicality? 
+
+First let's reprojeect and get everything into the same CRS:
+
+Use method = "bilinear" for continuous variables, "ngm" for categorical
+```{r}
+
+hi_par_84 <- projectRaster(hi_par, crs = wgs84, method = "bilinear")
+
+hi_chla_84 <- projectRaster(hi_chl, crs = wgs84, method = "bilinear")
+
+# Now we have PAR, Chl-a, and SST all in the same CRS (WGS84) and can start doing some simple algebra. 
+```
+
+Plot them side-by-side:
+```{r}
+par(mfrow = c(1,3))
+plot(hi_sst_84)
+plot(hi_chla_84)
+plot(hi_par_84)
+```
+
+Raster map is pretty straightforward: 
+```{r}
+trop <- hi_par_84 + hi_sst_84 + 2*hi_chla_84
+plot(trop)
+```
+
+We can also explore some stuff about the raster data: 
+
+```{r}
+hist(hi_sst_84)
+length(hi_sst_84)
+```
+
+And we might want to plot these in tmap instead: 
+
+Let's look at sea surface temperature. 
+```{r}
+
+islands <- read_sf(dsn = 'islands', layer = "Island_boundaries") %>% 
+  dplyr::select(Island) %>% 
+  st_simplify(dTolerance = 10) %>% 
+  st_transform(crs = 3857)
+
+plot(islands)
+
+tmap_mode("plot") # or switch to tmap_mode("view")
+
+sst_map <- tm_shape(hi_sst_84) +
+  tm_raster(title = "Mean Sea Surface Temperature") +
+  tm_layout(bg.color = "navyblue", 
+            legend.position = c("left","bottom"),
+            legend.text.color = "white", 
+            legend.text.size = 0.5) +
+  tm_shape(islands) +
+  tm_fill("darkgreen")
+
+tmap_save(sst_map, "sst.png", height=5)
+
+```
+
+Example: Conditional rasters and masking
+
+Let's say we have a sensitive species and we're trying to find suitable habitat. They like warm water (average temp >= 25.6 deg C) and PAR below 54.
+
+```{r}
+
+# Currently don't have matching extents, we need to update:
+extent(hi_sst_84) <- extent(hi_par_84)
+
+# Check compareRaster...nope. Mismatching columns & rows is still a problem. 
+
+# But we also need to make sure they have the same number of rows & columns:
+cr <- raster(nrow = 822, 
+             ncol = 1229, 
+             xmn = -160.4365, 
+             xmx = -154.5373, 
+             ymn = 18.7309, 
+             ymx = 22.44634)
+
+sst_new <- resample(hi_sst_84, cr, method = "bilinear")
+
+compareRaster(sst_new, hi_par_84) # TRUE!
+```
+
+Plot both of them, and crop to a smaller area (for better visualization):
+```{r}
+plot(sst_new)
+plot(hi_par_84)
+```
+
+Create cropped versions:
+```{r}
+# Created 'bounds_main' as earlier: 
+
+bounds_main <- as(extent(-159.9, -159.2, 21.7, 22.3), 'SpatialPolygons') # Keep in mind, this could be any polygon shape (state outline, county outline, etc.)
+
+# Reproject
+crs(bounds_main) <- crs(sst_new)
+
+par_kauai <- crop(hi_par_84, bounds_main)
+sst_kauai <- crop(sst_new, bounds_main)
+
+# Check out PAR:
+plot(par_kauai)
+
+# Then SST:
+plot(sst_kauai)
+
+```
+
+Now we only want to isolate regions where the temperature >= 25.4 and PAR < 54.
+```{r}
+# Habitat
+par_hab <- par_kauai # just makes a copy
+par_hab[par_hab >= 54.0] <- NA
+
+plot(par_hab)
+
+sst_hab <- sst_kauai # also makes a copy
+sst_hab[sst_hab < 25.6] <- NA
+
+plot(sst_hab)
+
+par(mfrow = c(1,2))
+plot(par_hab)
+plot(sst_hab)
+
+```
+
+So where are the suitable locations where these habitats overlap? raster::mask
+```{r}
+suit_hab <- mask(sst_hab, par_hab)
+plot(suit_hab)
+```
+
+And make a nice map of the location you'll recommend: 
+```{r}
+
+kauai <- islands %>% 
+  filter(Island == "Kauai")
+
+tmap_mode("plot")
+tm_shape(suit_hab) +
+  tm_raster(legend.show = FALSE) +
+  tm_shape(kauai) +
+  tm_fill(col = "darkgreen") +
+  tm_shape(kauai) +
+  tm_borders(col = "yellowgreen", lwd = 2) +
+  tm_layout(bg.color = "navyblue")
+  
+```
+
+##Part 2. Kansas rainfall kriging 
+
+
+```{r}
+# Get Kansas rainfall data
+ks_rain <- read_csv("KSRain2.csv")
+ks_sf  <-  st_as_sf(ks_rain, coords = c("LON", "LAT"), 
+                 crs = 4326)
+
+# Get county data
+ks_counties <- read_sf(dsn = 'KSCounties', layer = "ks_counties_shapefile")
+st_crs(ks_counties) = 4326
+
+# Plot with tmap:
+tm_shape(ks_counties) +
+  tm_fill() +
+  tm_shape(ks_sf) +
+  tm_dots("AMT", size = 0.5)
+
+# Or with ggplot:
+ggplot() +
+  geom_sf(data = ks_counties, 
+          fill = "gray10", 
+          color = "gray20") +
+  geom_sf(data = ks_sf, aes(color = AMT)) +
+  scale_color_gradient(low = "yellow", 
+                       high = "red") +
+  theme_minimal() +
+  coord_sf(datum = NA)
+
+```
+
+But we want to make predictions across the entire state using kriging. 
+
+First, make the rainfall data a Spatial Points data frame: 
+```{r}
+ks_sp  <- as_Spatial(ks_sf)
+```
+
+Then make a grid that we'll krige over:
+```{r}
+# bbox(ks_sp) to check bounding box of the spatial points
+lat <- seq(37, 40, length.out = 200)
+long <- seq(-94.6,-102, length.out = 200)
+
+# Then make it into a grid: 
+grid <- expand.grid(lon = long, lat = lat)
+grid_sf <- st_as_sf(grid, coords = c("lon","lat"), crs = 4326)
+grid_sp <- as_Spatial(grid_sf)
+
+```
+
+Then make a variogram: 
+```{r}
+
+# Create the variogram:
+ks_vgm <- variogram(AMT ~ 1, ks_sp)
+
+# Look at it: 
+plot(ks_vgm)
+
+# Fit the variogram model using reasonable estimates for nugget, sill and range:
+ks_vgm_fit <- fit.variogram(ks_vgm, model = vgm(nugget = 0.2, psill = 0.8, model = "Sph", range = 200))
+
+# Plot them both together
+plot(ks_vgm, ks_vgm_fit) # Cool! So what are the values
+
+# Just FYI: there are other models (Gaussian, Exponential) - how do those line up? 
+ks_vgm_gau <- fit.variogram(ks_vgm, model = vgm(nugget = 0.2, psill = 0.8, model = "Gau", range = 200))
+
+plot(ks_vgm, ks_vgm_gau)
+
+# You can check the sum of squares of residuals for each: 
+attr(ks_vgm_fit, 'SSErr') # 0.00214 (and could compare to other models...)
+
+# We'll stick with the Spherical model: 
+ks_vgm_fit # Nugget = 0.102, sill = 0.954, range = 235
+```
+
+Now, kriging! 
+```{r}
+
+ks_krige <- krige(AMT ~ 1, ks_sp, grid_sp, model=ks_vgm_fit)
+
+```
+
+And visualize it: 
+```{r}
+
+ks_krige_df <- as.data.frame(ks_krige) # View it after this to show output
+
+# Rename things to make it a little nicer
+ks_krige_2 <- ks_krige_df %>% 
+  rename(lon = coords.x1, lat = coords.x2, predicted = var1.pred, err = var1.var)
+
+# Make this into spatial data again
+rain_predicted  <-  st_as_sf(ks_krige_2, coords = c("lon", "lat"), 
+                 crs = 4326)
+
+# Get Kansas outline to crop: 
+ks <- read_sf(dsn = "states", layer = "cb_2017_us_state_20m") %>% 
+  dplyr::select(NAME) %>% 
+  filter(NAME == "Kansas") %>% 
+  st_transform(crs = 4326)
+
+# Crop the rainfall data
+rain_cropped <- st_intersection(rain_predicted, ks)
+
+# Initial plot
+plot(rain_cropped) # But this is points
+
+# tmap: 
+  tm_shape(rain_cropped) +
+  tm_dots("predicted", size = 0.05) +
+  tm_shape(ks_counties) +
+  tm_borders() +
+    tm_layout(legend.bg.color = "white", legend.position = c("left","bottom"))
+
+```
+
+##3. Point pattern analysis
+
+Get the spatial data (counties and red tree voles)
+```{r}
+voles <- read_sf(dsn = 'redtreevoledata', layer = "ds033") %>% 
+  dplyr::select(COUNTY) %>% 
+  filter(COUNTY == "HUM") %>% 
+  st_transform(crs = 4326)
+
+# plot(voles)
+
+# Get Humboldt County outline
+humboldt <- read_sf(dsn = 'redtreevoledata', layer = "california_county_shape_file") %>% 
+  filter(NAME == "Humboldt") %>% 
+  dplyr::select(NAME)
+
+st_crs(humboldt) <- 4326
+
+# plot(humboldt)
+
+# Plot them together: 
+tm_shape(humboldt) +
+  tm_fill() +
+  tm_shape(voles) +
+  tm_dots(size = 0.2)
+
+# Or with ggplot2: 
+ggplot() +
+  geom_sf(data = humboldt) +
+  geom_sf(data = voles) +
+  
+ggsave("humvoles.png", 
+       units = "in", 
+       width = 4, 
+       height = 6, 
+       dpi = 300)
+
+# Another example (with tiff...there's also jpeg, png, etc.)
+
+# tiff("humvoles2.tiff", units = "in", width = 5, height = 5, res = 300)
+
+ggplot() +
+  geom_sf(data = humboldt, fill = "black") +
+  geom_sf(data = voles, color = "red", alpha = 0.5)
+
+# dev.off()
+
+
+```
+
+We want to explore point patterns in a few different ways. Quadrats. Distance-based methods. 
+
+First we need to convert to 'ppp' and 'owin' - the points and windows, as used by maptools and spatstat (because sf is still catching up for raster and point pattern analysis stuff)
+```{r}
+
+voles_sp <- as(voles,"Spatial")
+voles_ppp <- as(voles_sp, "ppp")
+
+humboldt_sp <- as(humboldt, "Spatial")
+humboldt_win <- as(humboldt_sp, "owin")
+
+voles_pb <- ppp(voles_ppp$x, voles_ppp$y, window = humboldt_win)
+
+plot(voles_pb)
+
+vole_qt <- quadrat.test(voles_pb, nx = 5, ny = 10) # nx and ny are number of columns/rows for the rectangles created 
+
+# Returns: VoleQT
+# Chi-squared test of CSR using quadrat counts
+
+# data:  VolePPP 
+# X-squared = 425.94, df = 45, p-value < 2.2e-16
+# alternative hypothesis: two.sided 
+# Reject the null hypothesis of spatial evenness! But we still don't know if more clustered or more uniform...
+
+plot(voles_pb)
+plot(vole_qt, add = TRUE, cex = 0.4)
+
+```
+
+Plot densities: 
+```{r}
+
+point_density <- density(voles_pb, sigma = 0.02)
+plot(point_density)
+
+# Can you start viewing this in tmap? Yes, rasterize it: 
+wgs84 = "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"
+vole_raster <- raster(point_density, crs = wgs84)
+
+# Then plot: 
+tm_shape(vole_raster) +
+  tm_raster(midpoint = NA, 
+            palette = "Blues", 
+            legend.show = FALSE)
+
+```
+
+Nearest neighbor (G-function)
+```{r}
+r <- seq(0,0.15, by = 0.005)
+
+gfunction <- envelope(voles_pb, fun = Gest, r = r, nsim = 100, nrank = 2) # Sig level of Monte Carlo = 0.04
+
+plot(gfunction$obs ~ gfunction$r, type = "l", col = "black", lty = 11)
+lines(gfunction$hi ~ gfunction$r, type = "l", col = "blue", lty = 8)
+lines(gfunction$theo ~ gfunction$r, type = "l", col = "red", lty = 6)
+lines(gfunction$lo ~ gfunction$r, type = "l", col = "green", lty = 4)
+
+# Confirms, in combination with quadrat.test, clustered data!
+
+```
+
+Nearest Neighbor by Ripley's K (using L standardization)
+
+```{r}
+r2 <- seq(0,0.5, by = 0.05)
+
+lfunction <- envelope(voles_pb, fun = Lest, r = r2, nsim = 20, rank = 2, global = TRUE)
+
+plot(lfunction$obs ~ lfunction$r, type = "l", col = "black", lty = 11)
+lines(lfunction$hi ~ lfunction$r, type = "l", col = "blue", lty = 8)
+lines(lfunction$theo ~ lfunction$r, type = "l", col = "red", lty = 6)
+lines(lfunction$lo ~ lfunction$r, type = "l", col = "green", lty = 4)
+
+```
+
+Diggle-Cressie-Loosmore-Ford test of CSR
+```{r}
+
+DCLFTest <- dclf.test(voles_pb, nsim = 100, rank = 2) 
+DCLFTest
+
+```
+
+# END LAB
+
+
