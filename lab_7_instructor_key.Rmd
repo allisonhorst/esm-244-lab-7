@@ -9,8 +9,10 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+## Lab 7 - More spatial business {.tabset .tabset-fade}
+
 Attach packages: 
-```{r}
+```{r, warning = FALSE, message = FALSE}
 
 library(tidyverse)
 library(tmap)
@@ -24,7 +26,7 @@ library(gstat)
 
 ```
 
-##Part 1. Hawaii raster intro
+###Part 1. Hawaii raster intro
 
 ```{r}
 
@@ -41,7 +43,7 @@ hi_chl <- raster("CHL_LTM.tif")
 
 ```
 
-###First: some useful functions for rasters
+First: some useful functions for rasters
 
 Checking it out: 
 
@@ -257,7 +259,7 @@ tm_shape(suit_hab) +
   
 ```
 
-##Part 2. Kansas rainfall kriging 
+###Part 2. Kansas rainfall kriging 
 
 
 ```{r}
@@ -377,7 +379,7 @@ plot(rain_cropped) # But this is points
 
 ```
 
-##3. Point pattern analysis
+###3. Point pattern analysis
 
 Get the spatial data (counties and red tree voles)
 ```{r}
@@ -512,6 +514,6 @@ DCLFTest
 
 ```
 
-# END LAB
+
 
 
