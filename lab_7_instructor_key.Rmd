@@ -23,6 +23,7 @@ library(sp)
 library(raster)
 # library(rgdal)
 library(gstat)
+library(plotKML) # for points to raster (they won't have this...just testing)
 
 ```
 
@@ -350,6 +351,62 @@ plot(vole_qt, add = TRUE, cex = 0.4)
 
 ```
 
+Plot densities: 
+```{r}
+
+point_density <- density(voles_pb, sigma = 0.02)
+plot(point_density)
+
+# Can you start viewing this in tmap? Yes, rasterize it: 
+wgs84 = "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"
+vole_raster <- raster(point_density, crs = wgs84)
+
+# Then plot: 
+tm_shape(vole_raster) +
+  tm_raster(midpoint = NA, 
+            palette = "Blues", 
+            legend.show = FALSE)
+
+```
+
+Nearest neighbor (G-function)
+```{r}
+r <- seq(0,0.15, by = 0.005)
+
+gfunction <- envelope(voles_pb, fun = Gest, r = r, nsim = 100, nrank = 2) # Sig level of Monte Carlo = 0.04
+
+plot(gfunction$obs ~ gfunction$r, type = "l", col = "black", lty = 11)
+lines(gfunction$hi ~ gfunction$r, type = "l", col = "blue", lty = 8)
+lines(gfunction$theo ~ gfunction$r, type = "l", col = "red", lty = 6)
+lines(gfunction$lo ~ gfunction$r, type = "l", col = "green", lty = 4)
+
+# Confirms, in combination with quadrat.test, clustered data!
+
+```
+
+Nearest Neighbor by Ripley's K (using L standardization)
+
+```{r}
+r2 <- seq(0,0.5, by = 0.05)
+
+lfunction <- envelope(voles_pb, fun = Lest, r = r2, nsim = 20, rank = 2, global = TRUE)
+
+plot(lfunction$obs ~ lfunction$r, type = "l", col = "black", lty = 11)
+lines(lfunction$hi ~ lfunction$r, type = "l", col = "blue", lty = 8)
+lines(lfunction$theo ~ lfunction$r, type = "l", col = "red", lty = 6)
+lines(lfunction$lo ~ lfunction$r, type = "l", col = "green", lty = 4)
+
+```
+
+Diggle-Cressie-Loosmore-Ford test of CSR
+```{r}
+
+DCLFTest <- dclf.test(voles_pb, nsim = 100, rank = 2) 
+DCLFTest
+
+```
+
+
 ###Part 3. Kansas rainfall kriging 
 
 
@@ -461,6 +518,7 @@ rain_cropped <- st_intersection(rain_predicted, ks)
 # Initial plot
 plot(rain_cropped) # But this is points
 
+# So is this (cheating...)
 # tmap: 
   tm_shape(rain_cropped) +
   tm_dots("predicted", size = 0.05) +
@@ -469,64 +527,6 @@ plot(rain_cropped) # But this is points
     tm_layout(legend.bg.color = "white", legend.position = c("left","bottom"))
 
 ```
-
-
-
-Plot densities: 
-```{r}
-
-point_density <- density(voles_pb, sigma = 0.02)
-plot(point_density)
-
-# Can you start viewing this in tmap? Yes, rasterize it: 
-wgs84 = "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"
-vole_raster <- raster(point_density, crs = wgs84)
-
-# Then plot: 
-tm_shape(vole_raster) +
-  tm_raster(midpoint = NA, 
-            palette = "Blues", 
-            legend.show = FALSE)
-
-```
-
-Nearest neighbor (G-function)
-```{r}
-r <- seq(0,0.15, by = 0.005)
-
-gfunction <- envelope(voles_pb, fun = Gest, r = r, nsim = 100, nrank = 2) # Sig level of Monte Carlo = 0.04
-
-plot(gfunction$obs ~ gfunction$r, type = "l", col = "black", lty = 11)
-lines(gfunction$hi ~ gfunction$r, type = "l", col = "blue", lty = 8)
-lines(gfunction$theo ~ gfunction$r, type = "l", col = "red", lty = 6)
-lines(gfunction$lo ~ gfunction$r, type = "l", col = "green", lty = 4)
-
-# Confirms, in combination with quadrat.test, clustered data!
-
-```
-
-Nearest Neighbor by Ripley's K (using L standardization)
-
-```{r}
-r2 <- seq(0,0.5, by = 0.05)
-
-lfunction <- envelope(voles_pb, fun = Lest, r = r2, nsim = 20, rank = 2, global = TRUE)
-
-plot(lfunction$obs ~ lfunction$r, type = "l", col = "black", lty = 11)
-lines(lfunction$hi ~ lfunction$r, type = "l", col = "blue", lty = 8)
-lines(lfunction$theo ~ lfunction$r, type = "l", col = "red", lty = 6)
-lines(lfunction$lo ~ lfunction$r, type = "l", col = "green", lty = 4)
-
-```
-
-Diggle-Cressie-Loosmore-Ford test of CSR
-```{r}
-
-DCLFTest <- dclf.test(voles_pb, nsim = 100, rank = 2) 
-DCLFTest
-
-```
-
 
 
 
