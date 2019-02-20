@@ -532,14 +532,18 @@ Extra...converting sf points to Spatial points to raster (with plotKML package):
 
 ```{r}
 
+# Convert sf object to spatial points
 rain_pts <- as_Spatial(rain_cropped)
 class(rain_pts)
 
+# Rasterize spatial points, make class 'Raster'
 rain_raster <- vect2rast(rain_pts)
 rain_raster2 <- raster(rain_raster)
 
+# Need to aggregate so it's not just tiny cells (and white space)
 rain_raster_agg <- raster::aggregate(rain_raster2, fact = 5, fun = max)
 
+# Then plot the raster
 tm_shape(rain_raster_agg) +
   tm_raster() +
   tm_shape(ks_counties) +
