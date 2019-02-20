@@ -37,9 +37,9 @@ hi_sst <- raster("SST_LTM.tif")
 hi_chl <- raster("CHL_LTM.tif")
   
 # Base plots
-# plot(hi_par)
-# plot(hi_sst)
-# plot(hi_chl)
+plot(hi_par)
+plot(hi_sst)
+plot(hi_chl)
 
 ```
 
@@ -62,7 +62,7 @@ hi_sst@extent # Shows extent (bounds)
 
 Example: reprojection to WGS84
 ```{r}
-wgs84 = "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs" # Just have this ready to copy/paste
+wgs84 = "+proj=longlat +datum=WGS84 +ellps=WGS84 +no_defs" # Just have this ready to copy/paste
 
 # Reproject
 hi_sst_84 = projectRaster(hi_sst, crs = wgs84, method = "bilinear")
@@ -89,7 +89,8 @@ plot(sst_rs)
 Crop a raster: 
 ```{r}
 
-# Get these extents from hi_sst_84 (call in console to see)
+# Get these extents from hi_sst_84 (call in console to see) what the actual limits are for hi_sst_84, then decide on cropping boundaries
+
 # First create a spatial polygon
 bounds <- as(extent(-156.2, -154.5, 18.7, 20.4), 'SpatialPolygons') # Keep in mind, this could be any polygon shape (state outline, county outline, etc.)
 
@@ -127,7 +128,7 @@ plot(hi_chla_84)
 plot(hi_par_84)
 ```
 
-Raster map is pretty straightforward: 
+Raster math is pretty straightforward: 
 ```{r}
 trop <- hi_par_84 + hi_sst_84 + 2*hi_chla_84
 plot(trop)
@@ -148,12 +149,22 @@ Let's look at sea surface temperature.
 islands <- read_sf(dsn = 'islands', layer = "Island_boundaries") %>% 
   dplyr::select(Island) %>% 
   st_simplify(dTolerance = 10) %>% 
-  st_transform(crs = 3857)
+  st_transform(crs = 4326)
 
 plot(islands)
 
 tmap_mode("plot") # or switch to tmap_mode("view")
 
+tm_shape(hi_sst_84) +
+  tm_raster(title = "Mean Sea Surface Temperature") +
+  tm_layout(bg.color = "navyblue", 
+            legend.position = c("left","bottom"),
+            legend.text.color = "white", 
+            legend.text.size = 0.5) +
+  tm_shape(islands) +
+  tm_fill("darkgreen")
+
+# Or name it and export
 sst_map <- tm_shape(hi_sst_84) +
   tm_raster(title = "Mean Sea Surface Temperature") +
   tm_layout(bg.color = "navyblue", 
@@ -259,7 +270,87 @@ tm_shape(suit_hab) +
   
 ```
 
-###Part 2. Kansas rainfall kriging 
+###Part 2. Point pattern analysis
+
+Get the spatial data (counties and red tree voles)
+```{r}
+voles <- read_sf(dsn = 'redtreevoledata', layer = "ds033") %>% 
+  dplyr::select(COUNTY) %>% 
+  filter(COUNTY == "HUM") %>% 
+  st_transform(crs = 4326)
+
+# plot(voles)
+
+# Get Humboldt County outline
+humboldt <- read_sf(dsn = 'redtreevoledata', layer = "california_county_shape_file") %>% 
+  filter(NAME == "Humboldt") %>% 
+  dplyr::select(NAME)
+
+st_crs(humboldt) <- 4326
+
+# plot(humboldt)
+
+# Plot them together: 
+tm_shape(humboldt) +
+  tm_fill() +
+  tm_shape(voles) +
+  tm_dots(size = 0.2)
+
+# Or with ggplot2: 
+ggplot() +
+  geom_sf(data = humboldt) +
+  geom_sf(data = voles) +
+  
+ggsave("humvoles.png", 
+       units = "in", 
+       width = 4, 
+       height = 6, 
+       dpi = 300)
+
+# Another example (with tiff...there's also jpeg, png, etc.)
+
+# tiff("humvoles2.tiff", units = "in", width = 5, height = 5, res = 300)
+
+ggplot() +
+  geom_sf(data = humboldt, fill = "black") +
+  geom_sf(data = voles, color = "red", alpha = 0.5)
+
+# dev.off()
+
+
+```
+
+We want to explore point patterns in a few different ways. Quadrats. Distance-based methods. 
+
+First we need to convert to 'ppp' and 'owin' - the points and windows, as used by maptools and spatstat (because sf is still catching up for raster and point pattern analysis stuff)
+```{r}
+
+voles_sp <- as(voles,"Spatial")
+voles_ppp <- as(voles_sp, "ppp")
+
+humboldt_sp <- as(humboldt, "Spatial")
+humboldt_win <- as(humboldt_sp, "owin")
+
+voles_pb <- ppp(voles_ppp$x, voles_ppp$y, window = humboldt_win)
+
+plot(voles_pb)
+
+vole_qt <- quadrat.test(voles_pb, nx = 5, ny = 10) # nx and ny are number of columns/rows for the rectangles created 
+
+# Returns: VoleQT
+# Chi-squared test of CSR using quadrat counts
+
+# data:  VolePPP 
+# X-squared = 425.94, df = 45, p-value < 2.2e-16
+# alternative hypothesis: two.sided 
+# Reject the null hypothesis of spatial evenness! But we still don't know if more clustered or more uniform...
+
+plot(voles_pb)
+plot(vole_qt, add = TRUE, cex = 0.4)
+
+```
+
+###Part 3. Kansas rainfall kriging 
 
 
 ```{r}
@@ -379,85 +470,7 @@ plot(rain_cropped) # But this is points
 
 ```
 
-###3. Point pattern analysis
 
-Get the spatial data (counties and red tree voles)
-```{r}
-voles <- read_sf(dsn = 'redtreevoledata', layer = "ds033") %>% 
-  dplyr::select(COUNTY) %>% 
-  filter(COUNTY == "HUM") %>% 
-  st_transform(crs = 4326)
-
-# plot(voles)
-
-# Get Humboldt County outline
-humboldt <- read_sf(dsn = 'redtreevoledata', layer = "california_county_shape_file") %>% 
-  filter(NAME == "Humboldt") %>% 
-  dplyr::select(NAME)
-
-st_crs(humboldt) <- 4326
-
-# plot(humboldt)
-
-# Plot them together: 
-tm_shape(humboldt) +
-  tm_fill() +
-  tm_shape(voles) +
-  tm_dots(size = 0.2)
-
-# Or with ggplot2: 
-ggplot() +
-  geom_sf(data = humboldt) +
-  geom_sf(data = voles) +
-  
-ggsave("humvoles.png", 
-       units = "in", 
-       width = 4, 
-       height = 6, 
-       dpi = 300)
-
-# Another example (with tiff...there's also jpeg, png, etc.)
-
-# tiff("humvoles2.tiff", units = "in", width = 5, height = 5, res = 300)
-
-ggplot() +
-  geom_sf(data = humboldt, fill = "black") +
-  geom_sf(data = voles, color = "red", alpha = 0.5)
-
-# dev.off()
-
-
-```
-
-We want to explore point patterns in a few different ways. Quadrats. Distance-based methods. 
-
-First we need to convert to 'ppp' and 'owin' - the points and windows, as used by maptools and spatstat (because sf is still catching up for raster and point pattern analysis stuff)
-```{r}
-
-voles_sp <- as(voles,"Spatial")
-voles_ppp <- as(voles_sp, "ppp")
-
-humboldt_sp <- as(humboldt, "Spatial")
-humboldt_win <- as(humboldt_sp, "owin")
-
-voles_pb <- ppp(voles_ppp$x, voles_ppp$y, window = humboldt_win)
-
-plot(voles_pb)
-
-vole_qt <- quadrat.test(voles_pb, nx = 5, ny = 10) # nx and ny are number of columns/rows for the rectangles created 
-
-# Returns: VoleQT
-# Chi-squared test of CSR using quadrat counts
-
-# data:  VolePPP 
-# X-squared = 425.94, df = 45, p-value < 2.2e-16
-# alternative hypothesis: two.sided 
-# Reject the null hypothesis of spatial evenness! But we still don't know if more clustered or more uniform...
-
-plot(voles_pb)
-plot(vole_qt, add = TRUE, cex = 0.4)
-
-```
 
 Plot densities: 
 ```{r}
