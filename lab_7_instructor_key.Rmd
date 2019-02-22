@@ -191,14 +191,15 @@ extent(hi_sst_84) <- extent(hi_par_84)
 # Check compareRaster...nope. Mismatching columns & rows is still a problem. 
 
 # But we also need to make sure they have the same number of rows & columns:
-cr <- raster(nrow = 822, 
-             ncol = 1229, 
-             xmn = -160.4365, 
-             xmx = -154.5373, 
-             ymn = 18.7309, 
-             ymx = 22.44634)
+# This is unnecessary (just use below):
+# cr <- raster(nrow = 822, 
+#              ncol = 1229, 
+#              xmn = -160.4365, 
+#              xmx = -154.5373, 
+#              ymn = 18.7309, 
+#              ymx = 22.44634)
 
-sst_new <- resample(hi_sst_84, cr, method = "bilinear")
+sst_new <- resample(hi_sst_84, hi_par_84, method = "bilinear")
 
 compareRaster(sst_new, hi_par_84) # TRUE!
 ```
@@ -549,8 +550,6 @@ tm_shape(rain_raster_agg) +
   tm_shape(ks_counties) +
   tm_borders() +
     tm_layout(legend.bg.color = "white", legend.position = c("left","bottom"))
-
-
 
 ```
 
